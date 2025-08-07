@@ -20,18 +20,22 @@ const io = new Server(server, {
 });
 
 // Store nodes + users per room
-const rooms = {}; // { roomId: { nodes: [], users: [] } }
+const rooms = {}; // { roomId: { nodes: [], edges:[], users: [] } }
 
 io.on("connection", (socket) => {
-    console.log("✅ User connected");
+    console.log("✅ User connected", socket.id);
 
     // Handle joining a room
     socket.on("join-room", ({ roomId, username }) => {
         socket.join(roomId);
+        console.log(`${socket.id} joined room: ${roomId}`);
 
         if (!rooms[roomId]) {
-            rooms[roomId] = { nodes: [], users: [] };
+            rooms[roomId] = { nodes: [], edges:[], users: [] };
         }
+
+        socket.emit("update-nodes", rooms[roomId].nodes);
+        socket.emit("update-edges",rooms[roomId].edges);
 
         rooms[roomId].users.push(username);
         socket.username = username;
@@ -43,6 +47,8 @@ io.on("connection", (socket) => {
         // Send existing nodes to the user who just joined
         socket.emit("update-nodes", rooms[roomId].nodes);
 
+        socket.emit("update-edges", rooms[roomId].edges);
+
         // Notify other users
         socket.to(roomId).emit("user-joined", username);
     });
@@ -52,6 +58,13 @@ io.on("connection", (socket) => {
         if (rooms[roomId]) {
             rooms[roomId].nodes = nodes;
             socket.to(roomId).emit("update-nodes", nodes);
+        }
+    });
+
+    socket.on("edge.update", ({roomId,edges})=>{
+        if(rooms[roomId]){
+            rooms[roomId].edges = edges;
+            socket.to(roomId).emit("update-edges",edges);
         }
     });
 
