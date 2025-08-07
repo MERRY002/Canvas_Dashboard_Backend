@@ -1,66 +1,72 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-require('dotenv').config();
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
 app.use(cors());
 
+app.get("/", (req, res) => {
+    res.send("🎉 Backend server is running!");
+});
+
 const server = http.createServer(app);
+
 const io = new Server(server, {
     cors: {
-        origin: "*",
+        origin: [process.env.FRONTEND_URL || "http://localhost:3000"],
         methods: ["GET", "POST"]
     }
 });
-const rooms = {}; 
+
+// Store nodes + users per room
+const rooms = {}; // { roomId: { nodes: [], users: [] } }
 
 io.on("connection", (socket) => {
-    console.log("A user connected");
+    console.log("✅ User connected");
+
+    // Handle joining a room
     socket.on("join-room", ({ roomId, username }) => {
         socket.join(roomId);
+
         if (!rooms[roomId]) {
             rooms[roomId] = { nodes: [], users: [] };
         }
+
         rooms[roomId].users.push(username);
-        console.log(`${username} joined room ${roomId}`);
-        io.to(roomId).emit("update-users", rooms[roomId].users);
-        socket.emit("update-nodes", rooms[roomId].nodes);
-        socket.to(roomId).emit("user-joined", username);
         socket.username = username;
         socket.roomId = roomId;
+
+        // Send updated user list to room
+        io.to(roomId).emit("update-users", rooms[roomId].users);
+
+        // Send existing nodes to the user who just joined
+        socket.emit("update-nodes", rooms[roomId].nodes);
+
+        // Notify other users
+        socket.to(roomId).emit("user-joined", username);
     });
+
+    // Handle node updates from any user
     socket.on("node-update", ({ roomId, nodes }) => {
         if (rooms[roomId]) {
             rooms[roomId].nodes = nodes;
             socket.to(roomId).emit("update-nodes", nodes);
-            console.log("Updated nodes for room", roomId, nodes);
         }
     });
-    socket.on("node-rename", ({ roomId, nodeId, newLabel }) => {
-        if (rooms[roomId]) {
-            rooms[roomId].nodes = rooms[roomId].nodes.map((n) =>
-                n.id === nodeId ? { ...n, data: { label: newLabel } } : n
-            );
-            io.to(roomId).emit("update-nodes", rooms[roomId].nodes);
-        }
-    });
-    socket.on("node-delete", ({ roomId, nodeId }) => {
-        if (rooms[roomId]) {
-            rooms[roomId].nodes = rooms[roomId].nodes.filter((n) => n.id !== nodeId);
-            io.to(roomId).emit("update-nodes", rooms[roomId].nodes);
-        }
-    });
+
+    // Handle user disconnect
     socket.on("disconnect", () => {
         const { roomId, username } = socket;
         if (roomId && rooms[roomId]) {
-            rooms[roomId].users = rooms[roomId].users.filter((u) => u !== username);
+            rooms[roomId].users = rooms[roomId].users.filter(u => u !== username);
             io.to(roomId).emit("update-users", rooms[roomId].users);
             socket.to(roomId).emit("user-left", username);
         }
-        console.log("User disconnected");
+        console.log("❌ User disconnected");
     });
 });
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+server.listen(process.env.PORT || 5000, () => {
+    console.log(`Server running on port ${process.env.PORT || 5000}`);
+});
